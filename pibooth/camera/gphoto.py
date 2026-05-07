@@ -2,6 +2,7 @@
 
 import io
 import time
+import threading
 import pygame
 try:
     import gphoto2 as gp
@@ -83,6 +84,10 @@ class GpCamera(BaseCamera):
         self._gp_logcb = None
         self._preview_compatible = True
         self._preview_viewfinder = False
+        self._preview_image = None
+        self._preview_image_lock = threading.Lock()
+        self._preview_thread = None
+        self._preview_stop = threading.Event()
 
     def _specific_initialization(self):
         """Camera initialization.
@@ -121,8 +126,8 @@ class GpCamera(BaseCamera):
             return image.transpose(Image.ROTATE_270)
         return image
 
-    def _get_preview_image(self):
-        """Capture a new preview image.
+    def _capture_preview_image(self):
+        """Capture and process a new preview image.
         """
         rect = self.get_rect()
         if self._preview_compatible:
@@ -139,9 +144,56 @@ class GpCamera(BaseCamera):
         else:
             image = Image.new('RGB', (rect.width, rect.height), color=(0, 0, 0))
 
+        return image
+
+    def _get_preview_image(self):
+        """Return the latest available preview image.
+        """
+        rect = self.get_rect()
+        with self._preview_image_lock:
+            image = self._preview_image
+
+        if image is None:
+            image = Image.new('RGB', (rect.width, rect.height), color=(0, 0, 0))
+        elif self._overlay:
+            image = image.copy()
+
         if self._overlay:
             image.paste(self._overlay, (0, 0), self._overlay)
         return image
+
+    def _preview_worker(self):
+        """Continuously refresh the cached preview frame.
+        """
+        while not self._preview_stop.is_set():
+            try:
+                image = self._capture_preview_image()
+                with self._preview_image_lock:
+                    self._preview_image = image
+            except gp.GPhoto2Error as ex:
+                if self._preview_stop.is_set():
+                    break
+                LOGGER.warning('Preview refresh failed: %s', ex)
+                break
+
+    def _start_preview_stream(self):
+        """Start the background preview refresh.
+        """
+        if not self._preview_compatible:
+            return
+        self._stop_preview_stream()
+        self._preview_stop.clear()
+        self._preview_thread = threading.Thread(target=self._preview_worker, name='pibooth-gphoto-preview')
+        self._preview_thread.daemon = True
+        self._preview_thread.start()
+
+    def _stop_preview_stream(self):
+        """Stop the background preview refresh.
+        """
+        self._preview_stop.set()
+        if self._preview_thread and self._preview_thread.is_alive():
+            self._preview_thread.join()
+        self._preview_thread = None
 
     def _post_process_capture(self, capture_data):
         """Rework capture data.
@@ -217,7 +269,13 @@ class GpCamera(BaseCamera):
         if self._preview_compatible:
             if self._preview_viewfinder:
                 self.set_config_value('actions', 'viewfinder', 1)
-            self._window.show_image(self._get_preview_image())
+            with self._preview_image_lock:
+                self._preview_image = self._capture_preview_image()
+            self._start_preview_stream()
+        else:
+            with self._preview_image_lock:
+                self._preview_image = None
+        self._window.show_image(self._get_preview_image())
 
     def preview_countdown(self, timeout, alpha=80):
         """Show a countdown of `timeout` seconds on the preview.
@@ -279,12 +337,16 @@ class GpCamera(BaseCamera):
     def stop_preview(self):
         """Stop the preview.
         """
+        self._stop_preview_stream()
         self._hide_overlay()
+        with self._preview_image_lock:
+            self._preview_image = None
         self._window = None
 
     def capture(self, effect=None):
         """Capture a new picture.
         """
+        self._stop_preview_stream()
         if self._preview_viewfinder:
             self.set_config_value('actions', 'viewfinder', 0)
 
@@ -306,6 +368,7 @@ class GpCamera(BaseCamera):
     def quit(self):
         """Close the camera driver, it's definitive.
         """
+        self._stop_preview_stream()
         if self._cam:
             del self._gp_logcb  # Uninstall log callback
             self._cam.exit()
