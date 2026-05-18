@@ -232,49 +232,51 @@ class PiConfigMenu(object):
         if image:
             self.win.show_image(image)
 
-        overlay = pygame.Surface(self.win.surface.get_size(), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 70))
-        self.win.surface.blit(overlay, (0, 0))
-
-        panel_width = min(520, self.win.surface.get_width() - 40)
-        panel_height = 120 + 70 * len(self._calibration['options'])
+        panel_width = min(self.win.surface.get_width() - 32, 880)
+        row_height = 84
+        panel_height = 96 + row_height * len(self._calibration['options'])
         panel = pygame.Rect(0, 0, panel_width, panel_height)
-        panel.center = self.win.surface.get_rect().center
+        panel.midbottom = (self.win.surface.get_rect().centerx, self.win.surface.get_rect().bottom - 16)
+
+        shadow = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        shadow.fill((0, 0, 0, 96))
+        self.win.surface.blit(shadow, (panel.left, panel.top))
         pygame.draw.rect(self.win.surface, (40, 41, 35), panel, border_radius=18)
         pygame.draw.rect(self.win.surface, (252, 151, 0), panel, width=3, border_radius=18)
 
         title = self._calibration_title_font.render('Live calibration', True, (255, 255, 255))
-        self.win.surface.blit(title, title.get_rect(centerx=panel.centerx, top=panel.top + 18))
+        self.win.surface.blit(title, title.get_rect(centerx=panel.centerx, top=panel.top + 16))
 
         buttons = {}
-        row_top = panel.top + 70
-        button_size = 46
-        close_rect = pygame.Rect(panel.right - 150, panel.bottom - 58, 120, 38)
+        row_top = panel.top + 58
+        button_size = 64
+        close_rect = pygame.Rect(panel.right - 144, panel.top + 18, 118, 42)
         buttons['close'] = close_rect
 
         for index, option in enumerate(self._calibration['options']):
-            row_y = row_top + index * 66
+            row_y = row_top + index * row_height
             label = self._calibration_font.render(option['label'], True, (255, 255, 255))
-            self.win.surface.blit(label, (panel.left + 26, row_y + 10))
+            self.win.surface.blit(label, (panel.left + 26, row_y + 18))
 
-            prev_rect = pygame.Rect(panel.left + 170, row_y, button_size, button_size)
-            next_rect = pygame.Rect(panel.right - 72, row_y, button_size, button_size)
-            value_rect = pygame.Rect(prev_rect.right + 14, row_y, panel.right - panel.left - 170 - 72 - 28 - 60, button_size)
+            prev_rect = pygame.Rect(panel.left + 180, row_y + 2, button_size, button_size)
+            next_rect = pygame.Rect(panel.right - 84, row_y + 2, button_size, button_size)
+            value_rect = pygame.Rect(prev_rect.right + 18, row_y + 2,
+                                     next_rect.left - prev_rect.right - 36, button_size)
 
             buttons[(option['key'], -1)] = prev_rect
             buttons[(option['key'], 1)] = next_rect
 
             for rect, text in ((prev_rect, '<'), (next_rect, '>')):
-                pygame.draw.rect(self.win.surface, (152, 43, 175), rect, border_radius=8)
+                pygame.draw.rect(self.win.surface, (152, 43, 175), rect, border_radius=12)
                 label_surface = self._calibration_font.render(text, True, (255, 255, 255))
                 self.win.surface.blit(label_surface, label_surface.get_rect(center=rect.center))
 
-            pygame.draw.rect(self.win.surface, (60, 61, 55), value_rect, border_radius=8)
+            pygame.draw.rect(self.win.surface, (60, 61, 55), value_rect, border_radius=12)
             value = option['choices'][option['index']]
             value_surface = self._calibration_font.render(str(value), True, (255, 255, 255))
             self.win.surface.blit(value_surface, value_surface.get_rect(center=value_rect.center))
 
-        pygame.draw.rect(self.win.surface, (35, 149, 135), close_rect, border_radius=8)
+        pygame.draw.rect(self.win.surface, (35, 149, 135), close_rect, border_radius=10)
         close_label = self._calibration_font.render('Back', True, (255, 255, 255))
         self.win.surface.blit(close_label, close_label.get_rect(center=close_rect.center))
         self._calibration['buttons'] = buttons

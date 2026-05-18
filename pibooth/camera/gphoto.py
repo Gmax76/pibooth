@@ -81,9 +81,9 @@ class GpCamera(BaseCamera):
                      u'sharpen']
 
     CALIBRATION_OPTIONS = (
-        ('iso', 'ISO', 'imgsettings', 'iso'),
-        ('aperture', 'Aperture', 'capturesettings', 'aperture'),
-        ('shutter_speed', 'Shutter Speed', 'capturesettings', 'shutterspeed'),
+        ('iso', 'ISO', (('imgsettings', 'iso'),)),
+        ('aperture', 'Aperture', (('capturesettings', 'aperture'), ('capturesettings', 'f-number'))),
+        ('shutter_speed', 'Shutter Speed', (('capturesettings', 'shutterspeed'), ('capturesettings', 'shutterspeed2'))),
     )
 
     def __init__(self, camera_proxy):
@@ -157,17 +157,27 @@ class GpCamera(BaseCamera):
         """Return live calibration options supported by the connected DSLR.
         """
         options = OrderedDict()
-        for key, label, section, option in self.CALIBRATION_OPTIONS:
-            try:
-                _, child = self._get_config_item(section, option)
-            except ValueError:
+        for key, label, locations in self.CALIBRATION_OPTIONS:
+            child = None
+            current_location = None
+            for section, option in locations:
+                try:
+                    _, child = self._get_config_item(section, option)
+                    current_location = (section, option)
+                    break
+                except ValueError:
+                    continue
+
+            if child is None:
                 continue
 
             choices = self._get_config_choices(child)
             if not choices:
                 continue
 
-            current = str(child.get_value())
+            current = str(child.get_value() or '')
+            if not current and choices:
+                current = choices[0]
             if current not in choices:
                 choices = [current] + choices
 
@@ -175,16 +185,22 @@ class GpCamera(BaseCamera):
                 'label': label,
                 'choices': choices,
                 'current': current,
+                'location': current_location,
             }
         return options
 
     def set_calibration_value(self, option, value):
         """Apply a calibration value immediately and return the stored value.
         """
-        for key, _label, section, config_option in self.CALIBRATION_OPTIONS:
+        calibration_options = self.get_calibration_options()
+        for key, _label, _locations in self.CALIBRATION_OPTIONS:
             if key == option:
+                if key not in calibration_options:
+                    raise ValueError("Unknown calibration option '{}'".format(option))
+                section, config_option = calibration_options[key]['location']
                 self.set_config_value(section, config_option, value)
-                return self.get_config_value(section, config_option)
+                applied = str(self.get_config_value(section, config_option) or '')
+                return applied or str(value)
         raise ValueError("Unknown calibration option '{}'".format(option))
 
     def get_preview_frame(self):

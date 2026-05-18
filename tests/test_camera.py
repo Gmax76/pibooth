@@ -124,11 +124,13 @@ def test_gp_get_calibration_options(monkeypatch):
 
     children = {
         ('imgsettings', 'iso'): FakeChild('1600', ['800', '1600', '3200']),
-        ('capturesettings', 'aperture'): FakeChild('8', ['5.6', '8', '11']),
-        ('capturesettings', 'shutterspeed'): FakeChild('1/125', ['1/60', '1/100', '1/125']),
+        ('capturesettings', 'f-number'): FakeChild('8', ['5.6', '8', '11']),
+        ('capturesettings', 'shutterspeed2'): FakeChild('1/125', ['1/60', '1/100', '1/125']),
     }
 
     def fake_get_config_item(section, option):
+        if (section, option) not in children:
+            raise ValueError('Unknown option {}/{}'.format(section, option))
         return None, children[(section, option)]
 
     monkeypatch.setattr(camera, '_get_config_item', fake_get_config_item)
@@ -140,15 +142,21 @@ def test_gp_get_calibration_options(monkeypatch):
     assert options['iso']['current'] == '1600'
     assert options['aperture']['choices'] == ['5.6', '8', '11']
     assert options['shutter_speed']['current'] == '1/125'
+    assert options['aperture']['location'] == ('capturesettings', 'f-number')
 
 
 def test_gp_set_calibration_value(monkeypatch):
     camera = GpCamera(None)
     calls = []
     monkeypatch.setattr(camera, 'set_config_value', lambda *args: calls.append(args))
-    monkeypatch.setattr(camera, 'get_config_value', lambda section, option: '1/60')
+    monkeypatch.setattr(camera, 'get_config_value', lambda section, option: '')
+    monkeypatch.setattr(camera, 'get_calibration_options', lambda: {
+        'shutter_speed': {
+            'location': ('capturesettings', 'shutterspeed2'),
+        }
+    })
 
     value = camera.set_calibration_value('shutter_speed', '1/60')
 
     assert value == '1/60'
-    assert calls == [('capturesettings', 'shutterspeed', '1/60')]
+    assert calls == [('capturesettings', 'shutterspeed2', '1/60')]
