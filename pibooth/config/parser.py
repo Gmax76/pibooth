@@ -199,7 +199,7 @@ DEFAULT = odict((
             ("liveview_autofocus",
                 (False,
                  "Trigger autofocus during DSLR liveview when supported by the camera",
-                 None, None)),
+                 "Liveview autofocus", ['True', 'False'])),
         ))
      ),
     ("PRINTER",
