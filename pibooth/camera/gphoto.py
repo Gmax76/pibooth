@@ -139,27 +139,57 @@ class GpCamera(BaseCamera):
         """
         return self._preview_compatible and self._window is not None
 
-    def _trigger_liveview_autofocus(self):
+    def _can_remote_release_capture(self):
+        """Return True when the camera can keep half-press AF lock into capture.
+        """
+        required = {'Press Half', 'Press Full', 'Release Full', 'Release Half'}
+        return required.issubset(set(self._eosremoterelease_choices))
+
+    def _trigger_liveview_autofocus(self, keep_pressed=False):
         """Trigger autofocus while liveview is still enabled.
         """
         if not self.liveview_autofocus or not self._preview_is_running():
-            return
+            return False
 
         try:
             if self._preview_autofocus:
                 LOGGER.debug('Trigger DSLR autofocus using actions/autofocusdrive')
                 self.set_config_value('actions', 'autofocusdrive', 1)
                 time.sleep(0.3)
-                return
+                return False
 
-            half_press = {'Press Half', 'Release Half'}
-            if half_press.issubset(set(self._eosremoterelease_choices)):
+            if self._can_remote_release_capture():
                 LOGGER.debug('Trigger DSLR autofocus using actions/eosremoterelease half-press')
                 self.set_config_value('actions', 'eosremoterelease', 'Press Half')
                 time.sleep(0.3)
+                if keep_pressed:
+                    return True
                 self.set_config_value('actions', 'eosremoterelease', 'Release Half')
         except (gp.GPhoto2Error, ValueError) as ex:
             LOGGER.warning('Liveview autofocus failed: %s', ex)
+        return False
+
+    def _wait_for_camera_file(self, timeout=10):
+        """Wait for the camera to report the captured file path.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            event_type, event_data = self._cam.wait_for_event(1000)
+            if event_type == gp.GP_EVENT_FILE_ADDED:
+                return event_data
+            if event_type == gp.GP_EVENT_TIMEOUT:
+                continue
+        raise gp.GPhoto2Error('Capture event timed out')
+
+    def _capture_with_remote_release(self):
+        """Capture using Canon remote-release to preserve half-press focus lock.
+        """
+        self.set_config_value('actions', 'eosremoterelease', 'Press Full')
+        try:
+            return self._wait_for_camera_file()
+        finally:
+            self.set_config_value('actions', 'eosremoterelease', 'Release Full')
+            self.set_config_value('actions', 'eosremoterelease', 'Release Half')
 
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.
@@ -406,12 +436,19 @@ class GpCamera(BaseCamera):
         if self.capture_iso != self.preview_iso:
             self.set_config_value('imgsettings', 'iso', self.capture_iso)
 
-        self._trigger_liveview_autofocus()
+        use_remote_release = self.liveview_autofocus and self._preview_is_running() and self._can_remote_release_capture()
+        autofocus_held = self._trigger_liveview_autofocus(keep_pressed=use_remote_release)
 
-        if self._preview_viewfinder:
-            self.set_config_value('actions', 'viewfinder', 0)
+        if use_remote_release and autofocus_held:
+            capture_path = self._capture_with_remote_release()
+            if self._preview_viewfinder:
+                self.set_config_value('actions', 'viewfinder', 0)
+        else:
+            if self._preview_viewfinder:
+                self.set_config_value('actions', 'viewfinder', 0)
+            capture_path = self._cam.capture(gp.GP_CAPTURE_IMAGE)
 
-        self._captures.append((self._cam.capture(gp.GP_CAPTURE_IMAGE), effect))
+        self._captures.append((capture_path, effect))
         time.sleep(0.3)  # Necessary to let the time for the camera to save the image
 
         if self.capture_iso != self.preview_iso:
