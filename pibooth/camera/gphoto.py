@@ -108,6 +108,19 @@ class GpCamera(BaseCamera):
         self.set_config_value('imgsettings', 'iso', self.preview_iso)
         self.set_config_value('settings', 'capturetarget', 'Memory card')
 
+    def configure_exposure(self, aperture='camera', shutter_speed='camera'):
+        """Configure DSLR exposure options managed by pibooth.
+        """
+        super(GpCamera, self).configure_exposure(aperture, shutter_speed)
+        if aperture in ('', 'camera'):
+            pass
+        else:
+            self.set_config_value('capturesettings', 'aperture', aperture)
+
+        if shutter_speed in ('', 'camera'):
+            return
+        self.set_config_value('capturesettings', 'shutterspeed', shutter_speed)
+
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.
         """

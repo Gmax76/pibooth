@@ -9,6 +9,11 @@ DSLR first configuration
 DSLR settings
 ^^^^^^^^^^^^^
 
+If your DSLR exposes remote aperture and shutter controls through gphoto2, pibooth
+can also set the `CAMERA` `aperture` and `shutter_speed` options. Keep the mode dial
+on `M`, `Av`, `Tv` or `P`, otherwise the camera may refuse the requested value and
+keep its current setting.
+
 Most common settings for DSLR::
 
     Shutter speed: 1/60
@@ -28,4 +33,5 @@ If the DLSR don't manage to take the photo Pibooth will show the "Oops something
 
 - Not enough light (or no light at all when the lens cap has not been removed)
 - Camera didn't manage to focus (that's why we advise to disable the autofocus and manually set it at the beginning)
+- Camera rejected a requested ISO, aperture or shutter speed value because the mode dial is in a fully automatic mode
 - No SD card in the camera (as all the captures are downloaded in the processing stage)
