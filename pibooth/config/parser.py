@@ -196,6 +196,10 @@ DEFAULT = odict((
                 (False,
                  "Delete captures from camera internal memory (when applicable)",
                  None, None)),
+            ("liveview_autofocus",
+                (False,
+                 "Trigger autofocus during DSLR liveview when supported by the camera",
+                 None, None)),
         ))
      ),
     ("PRINTER",

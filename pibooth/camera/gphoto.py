@@ -84,6 +84,8 @@ class GpCamera(BaseCamera):
         self._gp_logcb = None
         self._preview_compatible = True
         self._preview_viewfinder = False
+        self._preview_autofocus = False
+        self._eosremoterelease_choices = ()
         self._preview_image = None
         self._preview_image_lock = threading.Lock()
         self._preview_thread = None
@@ -105,8 +107,59 @@ class GpCamera(BaseCamera):
             except ValueError:
                 self._preview_viewfinder = False
 
+            self._preview_autofocus = self._has_config_value('actions', 'autofocusdrive')
+            if self._has_config_value('actions', 'eosremoterelease'):
+                _, child = self._get_config_item('actions', 'eosremoterelease')
+                self._eosremoterelease_choices = tuple(child.get_choices())
+
         self.set_config_value('imgsettings', 'iso', self.preview_iso)
         self.set_config_value('settings', 'capturetarget', 'Memory card')
+
+    def _get_config_item(self, section, option):
+        """Return configuration root and child widget.
+        """
+        try:
+            config = self._cam.get_config()
+            child = config.get_child_by_name(section).get_child_by_name(option)
+            return config, child
+        except gp.GPhoto2Error:
+            raise ValueError('Unknown option {}/{}'.format(section, option))
+
+    def _has_config_value(self, section, option):
+        """Return True when the configuration option exists.
+        """
+        try:
+            self._get_config_item(section, option)
+            return True
+        except ValueError:
+            return False
+
+    def _preview_is_running(self):
+        """Return True when capture preview is active.
+        """
+        return self._preview_compatible and self._window is not None
+
+    def _trigger_liveview_autofocus(self):
+        """Trigger autofocus while liveview is still enabled.
+        """
+        if not self.liveview_autofocus or not self._preview_is_running():
+            return
+
+        try:
+            if self._preview_autofocus:
+                LOGGER.debug('Trigger DSLR autofocus using actions/autofocusdrive')
+                self.set_config_value('actions', 'autofocusdrive', 1)
+                time.sleep(0.3)
+                return
+
+            half_press = {'Press Half', 'Release Half'}
+            if half_press.issubset(set(self._eosremoterelease_choices)):
+                LOGGER.debug('Trigger DSLR autofocus using actions/eosremoterelease half-press')
+                self.set_config_value('actions', 'eosremoterelease', 'Press Half')
+                time.sleep(0.3)
+                self.set_config_value('actions', 'eosremoterelease', 'Release Half')
+        except (gp.GPhoto2Error, ValueError) as ex:
+            LOGGER.warning('Liveview autofocus failed: %s', ex)
 
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.
@@ -227,8 +280,7 @@ class GpCamera(BaseCamera):
         """
         try:
             LOGGER.debug('Setting option %s/%s=%s', section, option, value)
-            config = self._cam.get_config()
-            child = config.get_child_by_name(section).get_child_by_name(option)
+            config, child = self._get_config_item(section, option)
             if child.get_type() == gp.GP_WIDGET_RADIO:
                 choices = [c for c in child.get_choices()]
             else:
@@ -252,12 +304,11 @@ class GpCamera(BaseCamera):
         """Get camera configuration option.
         """
         try:
-            config = self._cam.get_config()
-            child = config.get_child_by_name(section).get_child_by_name(option)
+            _, child = self._get_config_item(section, option)
             value = child.get_value()
             LOGGER.debug('Getting option %s/%s=%s', section, option, value)
             return value
-        except gp.GPhoto2Error:
+        except ValueError:
             raise ValueError('Unknown option {}/{}'.format(section, option))
 
     def preview(self, window, flip=True):
@@ -347,8 +398,6 @@ class GpCamera(BaseCamera):
         """Capture a new picture.
         """
         self._stop_preview_stream()
-        if self._preview_viewfinder:
-            self.set_config_value('actions', 'viewfinder', 0)
 
         effect = str(effect).lower()
         if effect not in self.IMAGE_EFFECTS:
@@ -356,6 +405,11 @@ class GpCamera(BaseCamera):
 
         if self.capture_iso != self.preview_iso:
             self.set_config_value('imgsettings', 'iso', self.capture_iso)
+
+        self._trigger_liveview_autofocus()
+
+        if self._preview_viewfinder:
+            self.set_config_value('actions', 'viewfinder', 0)
 
         self._captures.append((self._cam.capture(gp.GP_CAPTURE_IMAGE), effect))
         time.sleep(0.3)  # Necessary to let the time for the camera to save the image

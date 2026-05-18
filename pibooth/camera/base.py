@@ -21,6 +21,7 @@ class BaseCamera(object):
         self.preview_rotation, self.capture_rotation = (0, 0)
         self.preview_iso, self.capture_iso = (100, 100)
         self.preview_flip, self.capture_flip = (False, False)
+        self.liveview_autofocus = False
 
     def initialize(self, iso, resolution, rotation=0, flip=False, delete_internal_memory=False):
         """Initialize the camera.
@@ -45,6 +46,11 @@ class BaseCamera(object):
         """Specific camera initialization.
         """
         pass
+
+    def set_liveview_autofocus(self, enabled):
+        """Enable or disable liveview autofocus before capture.
+        """
+        self.liveview_autofocus = bool(enabled)
 
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.

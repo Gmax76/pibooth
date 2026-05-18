@@ -32,6 +32,7 @@ class CameraPlugin(object):
                        cfg.gettuple('CAMERA', 'rotation', int, 2),
                        cfg.getboolean('CAMERA', 'flip'),
                        cfg.getboolean('CAMERA', 'delete_internal_memory'))
+        cam.set_liveview_autofocus(cfg.getboolean('CAMERA', 'liveview_autofocus'))
         outcome.force_result(cam)
 
     @pibooth.hookimpl
