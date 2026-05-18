@@ -52,7 +52,8 @@ class RpiCamera(BaseCamera):
         self._cam.vflip = False
         self._cam.hflip = self.capture_flip
         self._cam.resolution = self.resolution
-        self._cam.iso = self.preview_iso
+        if not self._use_camera_setting(self.preview_iso):
+            self._cam.iso = self.preview_iso
         self._cam.rotation = self.preview_rotation
 
     def _show_overlay(self, text, alpha):
@@ -143,7 +144,7 @@ class RpiCamera(BaseCamera):
             raise ValueError("Invalid capture effect '{}' (choose among {})".format(effect, self.IMAGE_EFFECTS))
 
         try:
-            if self.capture_iso != self.preview_iso:
+            if not self._use_camera_setting(self.capture_iso) and self.capture_iso != self.preview_iso:
                 self._cam.iso = self.capture_iso
             if self.capture_rotation != self.preview_rotation:
                 self._cam.rotation = self.capture_rotation
@@ -152,7 +153,7 @@ class RpiCamera(BaseCamera):
             self._cam.image_effect = effect
             self._cam.capture(stream, format='jpeg')
 
-            if self.capture_iso != self.preview_iso:
+            if not self._use_camera_setting(self.preview_iso) and self.capture_iso != self.preview_iso:
                 self._cam.iso = self.preview_iso
             if self.capture_rotation != self.preview_rotation:
                 self._cam.rotation = self.preview_rotation

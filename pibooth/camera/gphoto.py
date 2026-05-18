@@ -3,6 +3,7 @@
 import io
 import time
 import threading
+from collections import OrderedDict
 import pygame
 try:
     import gphoto2 as gp
@@ -79,6 +80,12 @@ class GpCamera(BaseCamera):
                      u'smooth_more',
                      u'sharpen']
 
+    CALIBRATION_OPTIONS = (
+        ('iso', 'ISO', 'imgsettings', 'iso'),
+        ('aperture', 'Aperture', 'capturesettings', 'aperture'),
+        ('shutter_speed', 'Shutter Speed', 'capturesettings', 'shutterspeed'),
+    )
+
     def __init__(self, camera_proxy):
         super(GpCamera, self).__init__(camera_proxy)
         self._gp_logcb = None
@@ -105,7 +112,8 @@ class GpCamera(BaseCamera):
             except ValueError:
                 self._preview_viewfinder = False
 
-        self.set_config_value('imgsettings', 'iso', self.preview_iso)
+        if not self._use_camera_setting(self.preview_iso):
+            self.set_config_value('imgsettings', 'iso', self.preview_iso)
         self.set_config_value('settings', 'capturetarget', 'Memory card')
 
     def configure_exposure(self, aperture='camera', shutter_speed='camera'):
@@ -120,6 +128,71 @@ class GpCamera(BaseCamera):
         if shutter_speed in ('', 'camera'):
             return
         self.set_config_value('capturesettings', 'shutterspeed', shutter_speed)
+
+    def _get_config_item(self, section, option):
+        """Return configuration root and child widget.
+        """
+        try:
+            config = self._cam.get_config()
+            child = config.get_child_by_name(section).get_child_by_name(option)
+            return config, child
+        except gp.GPhoto2Error:
+            raise ValueError('Unknown option {}/{}'.format(section, option))
+
+    def _get_config_choices(self, child):
+        """Return the available widget choices as strings.
+        """
+        if child.get_type() in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU):
+            return [str(choice) for choice in child.get_choices()]
+        if child.get_type() == gp.GP_WIDGET_TOGGLE:
+            return ['0', '1']
+        return []
+
+    def supports_calibration(self):
+        """Return True when preview and exposure controls are available.
+        """
+        return self._preview_compatible and bool(self.get_calibration_options())
+
+    def get_calibration_options(self):
+        """Return live calibration options supported by the connected DSLR.
+        """
+        options = OrderedDict()
+        for key, label, section, option in self.CALIBRATION_OPTIONS:
+            try:
+                _, child = self._get_config_item(section, option)
+            except ValueError:
+                continue
+
+            choices = self._get_config_choices(child)
+            if not choices:
+                continue
+
+            current = str(child.get_value())
+            if current not in choices:
+                choices = [current] + choices
+
+            options[key] = {
+                'label': label,
+                'choices': choices,
+                'current': current,
+            }
+        return options
+
+    def set_calibration_value(self, option, value):
+        """Apply a calibration value immediately and return the stored value.
+        """
+        for key, _label, section, config_option in self.CALIBRATION_OPTIONS:
+            if key == option:
+                self.set_config_value(section, config_option, value)
+                return self.get_config_value(section, config_option)
+        raise ValueError("Unknown calibration option '{}'".format(option))
+
+    def get_preview_frame(self):
+        """Return the current DSLR preview frame.
+        """
+        if self._window is None:
+            return None
+        return self._get_preview_image()
 
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.
@@ -240,8 +313,7 @@ class GpCamera(BaseCamera):
         """
         try:
             LOGGER.debug('Setting option %s/%s=%s', section, option, value)
-            config = self._cam.get_config()
-            child = config.get_child_by_name(section).get_child_by_name(option)
+            config, child = self._get_config_item(section, option)
             if child.get_type() == gp.GP_WIDGET_RADIO:
                 choices = [c for c in child.get_choices()]
             else:
@@ -265,12 +337,11 @@ class GpCamera(BaseCamera):
         """Get camera configuration option.
         """
         try:
-            config = self._cam.get_config()
-            child = config.get_child_by_name(section).get_child_by_name(option)
+            _, child = self._get_config_item(section, option)
             value = child.get_value()
             LOGGER.debug('Getting option %s/%s=%s', section, option, value)
             return value
-        except gp.GPhoto2Error:
+        except ValueError:
             raise ValueError('Unknown option {}/{}'.format(section, option))
 
     def preview(self, window, flip=True):
@@ -367,13 +438,13 @@ class GpCamera(BaseCamera):
         if effect not in self.IMAGE_EFFECTS:
             raise ValueError("Invalid capture effect '{}' (choose among {})".format(effect, self.IMAGE_EFFECTS))
 
-        if self.capture_iso != self.preview_iso:
+        if not self._use_camera_setting(self.capture_iso) and self.capture_iso != self.preview_iso:
             self.set_config_value('imgsettings', 'iso', self.capture_iso)
 
         self._captures.append((self._cam.capture(gp.GP_CAPTURE_IMAGE), effect))
         time.sleep(0.3)  # Necessary to let the time for the camera to save the image
 
-        if self.capture_iso != self.preview_iso:
+        if not self._use_camera_setting(self.preview_iso) and self.capture_iso != self.preview_iso:
             self.set_config_value('imgsettings', 'iso', self.preview_iso)
 
         self._hide_overlay()  # If stop_preview() has not been called

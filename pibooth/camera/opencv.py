@@ -66,7 +66,8 @@ class CvCamera(BaseCamera):
         """
         self._preview_resolution = (self._cam.get(cv2.CAP_PROP_FRAME_WIDTH), self._cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
         LOGGER.debug("Preview resolution is %s", self._preview_resolution)
-        self._cam.set(cv2.CAP_PROP_ISO_SPEED, self.preview_iso)
+        if not self._use_camera_setting(self.preview_iso):
+            self._cam.set(cv2.CAP_PROP_ISO_SPEED, self.preview_iso)
 
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.
@@ -213,7 +214,7 @@ class CvCamera(BaseCamera):
         self._cam.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
         self._cam.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
 
-        if self.capture_iso != self.preview_iso:
+        if not self._use_camera_setting(self.capture_iso) and self.capture_iso != self.preview_iso:
             self._cam.set(cv2.CAP_PROP_ISO_SPEED, self.capture_iso)
 
         # Minimal delay + flush so first frame is valid (avoids black frame, keeps latency low)
@@ -231,7 +232,7 @@ class CvCamera(BaseCamera):
         self._cam.set(cv2.CAP_PROP_FRAME_WIDTH, self._preview_resolution[0])
         self._cam.set(cv2.CAP_PROP_FRAME_HEIGHT, self._preview_resolution[1])
 
-        if self.capture_iso != self.preview_iso:
+        if not self._use_camera_setting(self.preview_iso) and self.capture_iso != self.preview_iso:
             self._cam.set(cv2.CAP_PROP_ISO_SPEED, self.preview_iso)
 
         self._captures.append((image, effect))

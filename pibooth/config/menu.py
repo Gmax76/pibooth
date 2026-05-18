@@ -90,9 +90,12 @@ class PiConfigMenu(object):
         self.pm = plugins_manager
         self._changed = False
         self._close_callback = onclose
+        self._calibration = None
 
         size = self.win.get_rect().size
         self.size = (min(600, size[0]), min(400, size[1]))
+        self._calibration_title_font = pygame.font.Font(fonts.CURRENT, 30)
+        self._calibration_font = pygame.font.Font(fonts.CURRENT, 22)
         self._main_menu = pgm.Menu(title="Settings v{}".format(pibooth.__version__),
                                    width=self.size[0],
                                    height=self.size[1],
@@ -173,9 +176,135 @@ class PiConfigMenu(object):
                 menu.add.button("Manage plugins",
                                 self._build_submenu_plugins("Plugins"),
                                 margin=(self.size[0] // 2 - 105, 0))
+        elif section.lower() == 'camera' and self.app.camera.supports_calibration():
+            menu.add.vertical_margin(30)
+            menu.add.button("Live calibration", self._start_calibration,
+                            margin=(self.size[0] // 2 - 120, 0))
 
         menu.add.vertical_margin(20)
         return menu
+
+    def _start_calibration(self):
+        """Start the live DSLR calibration screen.
+        """
+        options = []
+        for key, data in self.app.camera.get_calibration_options().items():
+            choices = list(data['choices'])
+            current = data['current']
+            options.append({
+                'key': key,
+                'label': data['label'],
+                'choices': choices,
+                'index': choices.index(current) if current in choices else 0,
+            })
+
+        if not options:
+            return
+
+        self._keyboard.disable()
+        self.app.camera.preview(self.win)
+        self._calibration = {'options': options, 'buttons': {}}
+
+    def _stop_calibration(self):
+        """Stop the live DSLR calibration screen.
+        """
+        self.app.camera.stop_preview()
+        self._calibration = None
+
+    def _change_calibration_value(self, option, delta):
+        """Apply the previous or next calibration value.
+        """
+        new_index = max(0, min(len(option['choices']) - 1, option['index'] + delta))
+        if new_index == option['index']:
+            return
+
+        value = option['choices'][new_index]
+        applied = str(self.app.camera.set_calibration_value(option['key'], value))
+        option['index'] = option['choices'].index(applied) if applied in option['choices'] else new_index
+        self.cfg.set('CAMERA', option['key'], applied)
+        self._changed = True
+
+    def _draw_calibration(self):
+        """Draw the live DSLR calibration screen.
+        """
+        image = self.app.camera.get_preview_frame()
+        self.win.surface.fill((0, 0, 0))
+        if image:
+            self.win.show_image(image)
+
+        overlay = pygame.Surface(self.win.surface.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 70))
+        self.win.surface.blit(overlay, (0, 0))
+
+        panel_width = min(520, self.win.surface.get_width() - 40)
+        panel_height = 120 + 70 * len(self._calibration['options'])
+        panel = pygame.Rect(0, 0, panel_width, panel_height)
+        panel.center = self.win.surface.get_rect().center
+        pygame.draw.rect(self.win.surface, (40, 41, 35), panel, border_radius=18)
+        pygame.draw.rect(self.win.surface, (252, 151, 0), panel, width=3, border_radius=18)
+
+        title = self._calibration_title_font.render('Live calibration', True, (255, 255, 255))
+        self.win.surface.blit(title, title.get_rect(centerx=panel.centerx, top=panel.top + 18))
+
+        buttons = {}
+        row_top = panel.top + 70
+        button_size = 46
+        close_rect = pygame.Rect(panel.right - 150, panel.bottom - 58, 120, 38)
+        buttons['close'] = close_rect
+
+        for index, option in enumerate(self._calibration['options']):
+            row_y = row_top + index * 66
+            label = self._calibration_font.render(option['label'], True, (255, 255, 255))
+            self.win.surface.blit(label, (panel.left + 26, row_y + 10))
+
+            prev_rect = pygame.Rect(panel.left + 170, row_y, button_size, button_size)
+            next_rect = pygame.Rect(panel.right - 72, row_y, button_size, button_size)
+            value_rect = pygame.Rect(prev_rect.right + 14, row_y, panel.right - panel.left - 170 - 72 - 28 - 60, button_size)
+
+            buttons[(option['key'], -1)] = prev_rect
+            buttons[(option['key'], 1)] = next_rect
+
+            for rect, text in ((prev_rect, '<'), (next_rect, '>')):
+                pygame.draw.rect(self.win.surface, (152, 43, 175), rect, border_radius=8)
+                label_surface = self._calibration_font.render(text, True, (255, 255, 255))
+                self.win.surface.blit(label_surface, label_surface.get_rect(center=rect.center))
+
+            pygame.draw.rect(self.win.surface, (60, 61, 55), value_rect, border_radius=8)
+            value = option['choices'][option['index']]
+            value_surface = self._calibration_font.render(str(value), True, (255, 255, 255))
+            self.win.surface.blit(value_surface, value_surface.get_rect(center=value_rect.center))
+
+        pygame.draw.rect(self.win.surface, (35, 149, 135), close_rect, border_radius=8)
+        close_label = self._calibration_font.render('Back', True, (255, 255, 255))
+        self.win.surface.blit(close_label, close_label.get_rect(center=close_rect.center))
+        self._calibration['buttons'] = buttons
+
+    def _process_calibration(self, events):
+        """Process events for the live DSLR calibration screen.
+        """
+        for event in events:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self._stop_calibration()
+                return
+
+            if not ((event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 2, 3))
+                    or event.type == pygame.FINGERDOWN):
+                continue
+
+            pos = get_event_pos(self.win.display_size, event)
+            for key, rect in self._calibration['buttons'].items():
+                if not rect.collidepoint(pos):
+                    continue
+                if key == 'close':
+                    self._stop_calibration()
+                else:
+                    option_key, delta = key
+                    option = next((item for item in self._calibration['options'] if item['key'] == option_key), None)
+                    if option:
+                        self._change_calibration_value(option, delta)
+                return
+
+        self._draw_calibration()
 
     def _build_submenu_counters(self, title):
         menu = pgm.Menu(title=title.capitalize(),
@@ -345,6 +474,10 @@ class PiConfigMenu(object):
     def process(self, events):
         """Process the events related to the menu.
         """
+        if self._calibration is not None:
+            self._process_calibration(events)
+            return
+
         if not self._keyboard.is_enabled():
             self._main_menu.update(events)
             if self._main_menu.is_enabled():  # Menu may have been closed

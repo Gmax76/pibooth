@@ -54,6 +54,32 @@ class BaseCamera(object):
         self.aperture = aperture
         self.shutter_speed = shutter_speed
 
+    @staticmethod
+    def _use_camera_setting(value):
+        """Return True when the setting should be left untouched on camera.
+        """
+        return value in ('', 'camera')
+
+    def supports_calibration(self):
+        """Return True when live calibration is supported.
+        """
+        return False
+
+    def get_calibration_options(self):
+        """Return available live calibration options.
+        """
+        return {}
+
+    def set_calibration_value(self, option, value):
+        """Apply a calibration value immediately.
+        """
+        raise NotImplementedError
+
+    def get_preview_frame(self):
+        """Return the current preview frame when available.
+        """
+        return None
+
     def _show_overlay(self, text, alpha):
         """Add an image as an overlay.
         """
